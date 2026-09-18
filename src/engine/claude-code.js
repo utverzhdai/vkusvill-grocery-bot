@@ -13,9 +13,9 @@ const ALLOWED_TOOLS = [
   'Bash(node tools/cart.mjs *)',
 ].join(',')
 
-export function buildArgs({ text, sessionId, model = 'sonnet' }) {
+export function buildArgs({ sessionId, model = 'sonnet' }) {
   const args = [
-    '-p', text,
+    '-p',
     '--model', model,
     '--output-format', 'json',
     '--append-system-prompt-file', 'prompts/system.md',
@@ -31,30 +31,41 @@ export function createEngine({ workspaceDir, browserDir, oauthToken, spawnImpl =
   return {
     run(text, sessionId) {
       return new Promise(resolve => {
-        const args = buildArgs({ text, sessionId, model })
-        const child = spawnImpl('claude', args, {
-          cwd: workspaceDir,
-          env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: oauthToken, GROCERY_BROWSER_DIR: browserDir },
-          // На Windows claude — .cmd-шим, без shell spawn его не запустит. На сервере Linux не нужно.
-          shell: process.platform === 'win32',
-        })
-        let out = '', err = '', done = false
+        const args = buildArgs({ sessionId, model })
+        let timer = null
+        let done = false
         const finish = r => { if (!done) { done = true; clearTimeout(timer); resolve(r) } }
-        const timer = setTimeout(() => {
-          child.kill()
-          finish({ reply: 'Таймаут ответа модели (3 минуты). Повтори, пожалуйста.', sessionId, isError: true })
-        }, timeoutMs)
-        child.stdout.on('data', d => { out += d })
-        child.stderr.on('data', d => { err += d })
-        child.on('error', e => finish({ reply: `Не удалось запустить claude: ${e.message}`, sessionId, isError: true }))
-        child.on('close', code => {
-          try {
-            const data = JSON.parse(out)
-            finish({ reply: String(data.result ?? ''), sessionId: data.session_id ?? sessionId, isError: Boolean(data.is_error) || code !== 0 })
-          } catch {
-            finish({ reply: `Модель не ответила (код ${code}). ${err.slice(0, 300)}`.trim(), sessionId, isError: true })
+
+        try {
+          const child = spawnImpl('claude', args, {
+            cwd: workspaceDir,
+            env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: oauthToken ?? '', GROCERY_BROWSER_DIR: browserDir ?? '' },
+            // На Windows claude — .cmd-шим, без shell spawn его не запустит. На сервере Linux не нужно.
+            shell: process.platform === 'win32',
+          })
+          if (child.stdin) {
+            child.stdin.write(text)
+            child.stdin.end()
           }
-        })
+          let out = '', err = ''
+          timer = setTimeout(() => {
+            child.kill()
+            finish({ reply: 'Таймаут ответа модели (3 минуты). Повтори, пожалуйста.', sessionId, isError: true })
+          }, timeoutMs)
+          child.stdout.on('data', d => { out += d })
+          child.stderr.on('data', d => { err += d })
+          child.on('error', e => finish({ reply: `Не удалось запустить claude: ${e.message}`, sessionId, isError: true }))
+          child.on('close', code => {
+            try {
+              const data = JSON.parse(out)
+              finish({ reply: String(data.result ?? ''), sessionId: data.session_id ?? sessionId, isError: Boolean(data.is_error) || code !== 0 })
+            } catch {
+              finish({ reply: `Модель не ответила (код ${code}). ${err.slice(0, 300)}`.trim(), sessionId, isError: true })
+            }
+          })
+        } catch (e) {
+          finish({ reply: `Не удалось запустить claude: ${e.message}`, sessionId, isError: true })
+        }
       })
     },
   }
