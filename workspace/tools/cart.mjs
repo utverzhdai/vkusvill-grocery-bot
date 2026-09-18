@@ -12,14 +12,16 @@ const browserDir = process.env.GROCERY_BROWSER_DIR ?? join(here, '..', '..', 'br
 const out = obj => { console.log(JSON.stringify(obj)); }
 
 if (!link || !/^https:\/\/vkusvill\.ru\/\?share_basket=\d+$/.test(link)) {
-  out({ status: 'error', message: 'ожидается ссылка вида https://vkusvill.ru/?share_basket=<число>' })
+  out({ status: 'error', message: 'ожидается ссылка вида https://vkusvill.ru/?share_basket=<число>', screenshot: null })
   process.exit(0)
 }
 
-const selectors = JSON.parse(readFileSync(join(here, 'selectors.json'), 'utf8'))
-mkdirSync(browserDir, { recursive: true })
 let ctx
 try {
+  // Чтение selectors.json и создание папки профиля — внутри try, чтобы при ошибке
+  // модель всё равно получила JSON-строку на stdout, а не голый стектрейс в stderr.
+  const selectors = JSON.parse(readFileSync(join(here, 'selectors.json'), 'utf8'))
+  mkdirSync(browserDir, { recursive: true })
   ctx = await chromium.launchPersistentContext(join(browserDir, 'profile'), {
     headless: true, locale: 'ru-RU',
     // Локальная отладка: PROXY=socks5://127.0.0.1:1081 (домашний VPN ВкусВилл не пускает). На сервере не нужен.

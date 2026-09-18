@@ -6,7 +6,7 @@
   "itemPrice": ".js-delivery__basket--row__price-sale-value",
   "itemUnavailable": ".js-delivery__basket--row__wo_maxq:not(.hidden)",
   "itemMaxQty": ".js-delivery__basket--row__maxq",
-  "cartTotal": ".js-delivery__basket--totals_package-price",
+  "cartTotal": ".Delivery__Order__OrderFooterLine:has-text(\"Общая сумма заказа\") .js-delivery__basket--totals_package-price",
   "shareModal": "#js-lk-modal-shared-basket",
   "shareAccept": "#accept_share_basket",
   "shareItem": "#js-lk-modal-shared-basket .js-product-cart",
