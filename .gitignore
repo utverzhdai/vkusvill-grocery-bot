@@ -1,0 +1,7 @@
+node_modules/
+.env
+browser/
+state.json
+spike/captures/
+workspace/memory/history/*.md
+!workspace/memory/history/.gitkeep
