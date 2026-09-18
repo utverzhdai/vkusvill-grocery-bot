@@ -38,4 +38,30 @@ describe('sessions', () => {
     expect(s2.get(1)).toBe('abc')
     expect(s2.isAwaitingCode(1)).toBe(true)
   })
+  it('восстанавливает пустое состояние при повреждённом JSON', () => {
+    const fs = memFs('не json')
+    const s = createSessions({ file: 'x.json', fs })
+    expect(s.get(1)).toBeNull()
+    s.set(1, 'abc')
+    expect(s.get(1)).toBe('abc')
+  })
+  it('забывает восстановленную сессию если она старше TTL', () => {
+    let t = 1_000_000
+    const fs = memFs(JSON.stringify({
+      chats: { 1: { sessionId: 'abc', lastUsed: 0, awaitingCode: false } }
+    }))
+    const s = createSessions({ file: 'x.json', fs, now: () => t })
+    t += 12 * 60 * 60 * 1000 + 1
+    expect(s.get(1)).toBeNull()
+  })
+  it('не падает при ошибке сохранения состояния', () => {
+    const fs = {
+      existsSync: () => false,
+      writeFileSync: () => { throw new Error('I/O error') }
+    }
+    const s = createSessions({ file: 'x.json', fs })
+    expect(() => s.set(1, 'abc')).not.toThrow()
+    expect(() => s.reset(1)).not.toThrow()
+    expect(() => s.setAwaitingCode(1, true)).not.toThrow()
+  })
 })

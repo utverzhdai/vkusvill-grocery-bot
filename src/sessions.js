@@ -7,7 +7,13 @@ export function createSessions({ file, ttlMs = DAY_HALF, now = Date.now, fs = no
   if (fs.existsSync(file)) {
     try { state = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { state = { chats: {} } }
   }
-  const save = () => fs.writeFileSync(file, JSON.stringify(state, null, 2))
+  const save = () => {
+    try {
+      fs.writeFileSync(file, JSON.stringify(state, null, 2))
+    } catch (e) {
+      console.error('sessions: не удалось сохранить состояние:', e.message)
+    }
+  }
   const chat = id => (state.chats[id] ??= { sessionId: null, lastUsed: 0, awaitingCode: false })
 
   return {
