@@ -7,10 +7,9 @@ function fakeSpawn(stdoutText, code = 0, throwOnSpawn = false) {
   const spawnImpl = (cmd, args, opts) => {
     if (throwOnSpawn) throw new Error('Fake spawn error')
     const callInfo = { cmd, args, opts, stdinWritten: '' }
-    const stdin = {
-      write: d => { callInfo.stdinWritten += d },
-      end: () => {}
-    }
+    const stdin = new EventEmitter()
+    stdin.write = d => { callInfo.stdinWritten += d; return true }
+    stdin.end = () => {}
     callInfo.stdin = stdin
     calls.push(callInfo)
     const child = new EventEmitter()
@@ -65,7 +64,10 @@ describe('createEngine.run', () => {
     const spawnImpl = () => {
       const child = new EventEmitter()
       child.stdout = new EventEmitter(); child.stderr = new EventEmitter()
-      child.stdin = { write: () => {}, end: () => {} }
+      const stdin = new EventEmitter()
+      stdin.write = () => true
+      stdin.end = () => {}
+      child.stdin = stdin
       child.kill = () => setTimeout(() => child.emit('close', 137), 1)
       return child
     }
@@ -80,5 +82,22 @@ describe('createEngine.run', () => {
     const r = await e.run('x', null)
     expect(r.isError).toBe(true)
     expect(r.reply).toMatch(/Не удалось запустить claude/)
+  })
+  it('обрабатывает EPIPE ошибку stdin без краша', async () => {
+    const spawnImpl = () => {
+      const child = new EventEmitter()
+      child.stdout = new EventEmitter(); child.stderr = new EventEmitter()
+      const stdin = new EventEmitter()
+      stdin.write = () => true
+      stdin.end = () => {}
+      child.stdin = stdin
+      child.kill = () => {}
+      setTimeout(() => { stdin.emit('error', new Error('EPIPE')) }, 1)
+      setTimeout(() => { child.emit('close', 1) }, 2)
+      return child
+    }
+    const e = createEngine({ workspaceDir: '/ws', browserDir: '/br', oauthToken: 'tok', spawnImpl })
+    const r = await e.run('x', null)
+    expect(r.isError).toBe(true)
   })
 })

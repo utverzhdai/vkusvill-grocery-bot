@@ -44,6 +44,7 @@ export function createEngine({ workspaceDir, browserDir, oauthToken, spawnImpl =
             shell: process.platform === 'win32',
           })
           if (child.stdin) {
+            child.stdin.on('error', () => {})
             child.stdin.write(text)
             child.stdin.end()
           }
