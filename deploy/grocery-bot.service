@@ -9,6 +9,7 @@ User=grocery
 WorkingDirectory=/opt/grocery-bot
 EnvironmentFile=/opt/grocery-bot/.env
 Environment=HOME=/home/grocery
+UMask=0077
 ExecStart=/usr/bin/node src/main.js
 Restart=always
 RestartSec=5
