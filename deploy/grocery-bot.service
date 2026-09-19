@@ -1,0 +1,19 @@
+[Unit]
+Description=Telegram grocery bot (VkusVill)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=grocery
+WorkingDirectory=/opt/grocery-bot
+EnvironmentFile=/opt/grocery-bot/.env
+Environment=HOME=/home/grocery
+ExecStart=/usr/bin/node src/main.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
