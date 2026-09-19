@@ -12,7 +12,15 @@ const ALLOWED_TOOLS = [
   'Write(memory/**)',
   'Edit(memory/**)',
   'Bash(node tools/cart.mjs *)',
-].join(',')
+]
+
+// Модель иногда пишет абсолютный путь к скрипту; без второго правила такая
+// команда упирается в «requires approval», и размещение срывается.
+function allowedTools(workspaceDir) {
+  const list = [...ALLOWED_TOOLS]
+  if (workspaceDir) list.push(`Bash(node ${workspaceDir.replace(/\\/g, '/')}/tools/cart.mjs *)`)
+  return list.join(',')
+}
 
 // При shell: true Node не экранирует аргументы сам: строка вроде
 // Bash(node tools/cart.mjs *) в cmd.exe рассыпается на куски.
@@ -41,7 +49,7 @@ function childEnv({ oauthToken, browserDir }) {
   }
 }
 
-export function buildArgs({ sessionId, model = 'sonnet' }) {
+export function buildArgs({ sessionId, model = 'sonnet', workspaceDir = null }) {
   const args = [
     '-p',
     '--model', model,
@@ -49,7 +57,7 @@ export function buildArgs({ sessionId, model = 'sonnet' }) {
     '--append-system-prompt-file', 'prompts/system.md',
     '--mcp-config', 'mcp.json',
     '--strict-mcp-config',
-    '--allowedTools', ALLOWED_TOOLS,
+    '--allowedTools', allowedTools(workspaceDir),
   ]
   if (sessionId) args.push('--resume', sessionId)
   return args
@@ -59,7 +67,7 @@ export function createEngine({ workspaceDir, browserDir, oauthToken, spawnImpl =
   return {
     run(text, sessionId) {
       return new Promise(resolve => {
-        const args = buildArgs({ sessionId, model })
+        const args = buildArgs({ sessionId, model, workspaceDir })
         let timer = null
         let done = false
         const finish = r => { if (!done) { done = true; clearTimeout(timer); resolve(r) } }

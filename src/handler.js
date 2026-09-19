@@ -36,13 +36,18 @@ export function createHandler({ ownerId, telegram, engine, sessions, loginRunner
   }
 
   async function ask(chatId, text) {
+    // Журнал запросов: что пришло, сколько думала модель, чем ответила (первая строка).
+    const startedAt = Date.now()
+    console.log(`[${chatId}] запрос: ${text.slice(0, 200).replace(/\n/g, ' ')}`)
     const stopWorking = await startWorking(chatId)
     try {
       const r = await engine.run(text, sessions.get(chatId))
       if (r.sessionId) sessions.set(chatId, r.sessionId)
       await stopWorking()
+      const seconds = Math.round((Date.now() - startedAt) / 1000)
+      console.log(`[${chatId}] ответ за ${seconds} с${r.isError ? ' (ошибка)' : ''}: ${r.reply.split('\n')[0].slice(0, 200)}`)
       if (r.isError) {
-        console.error('engine:', r.reply.slice(0, 200))
+        console.error('engine:', r.reply.slice(0, 500))
         await telegram.sendMessage(chatId, r.reply)
         return false
       }
