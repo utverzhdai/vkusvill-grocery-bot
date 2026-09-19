@@ -11,9 +11,9 @@
   "shareAccept": "#accept_share_basket",
   "shareItem": "#js-lk-modal-shared-basket .js-product-cart",
   "shareItemStock": "[data-log-stock]",
-  "loginOpen": "",
+  "loginOpen": ".js-user-load-login-api:visible",
   "phoneInput": "input[type=tel]",
   "phoneSubmit": "",
-  "codeInput": "",
+  "codeInput": "input[autocomplete=\"one-time-code\"], input[name*=code i], input[inputmode=numeric]:not([type=tel])",
   "codeSubmit": ""
 }
