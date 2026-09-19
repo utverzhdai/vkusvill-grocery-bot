@@ -7,6 +7,9 @@ export function createSessions({ file, ttlMs = DAY_HALF, now = Date.now, fs = no
   if (fs.existsSync(file)) {
     try { state = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { state = { chats: {} } }
   }
+  // Ожидание кода из СМС живёт только внутри процесса: после перезапуска
+  // никакой login.mjs кода уже не ждёт, флаг съел бы следующее сообщение.
+  for (const c of Object.values(state.chats ?? {})) c.awaitingCode = false
   const save = () => {
     try {
       fs.writeFileSync(file, JSON.stringify(state, null, 2))

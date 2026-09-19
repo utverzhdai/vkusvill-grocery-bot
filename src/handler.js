@@ -16,11 +16,16 @@ export function createHandler({ ownerId, telegram, engine, sessions, loginRunner
   }
 
   async function ask(chatId, text) {
+    telegram.sendChatAction(chatId).catch(() => {})
     const timer = setTimeoutImpl(() => { telegram.sendMessage(chatId, '⏳ Работаю…').catch(() => {}) }, statusDelayMs)
     try {
       const r = await engine.run(text, sessions.get(chatId))
       if (r.sessionId) sessions.set(chatId, r.sessionId)
-      if (r.isError) { await telegram.sendMessage(chatId, r.reply); return false }
+      if (r.isError) {
+        console.error('engine:', r.reply.slice(0, 200))
+        await telegram.sendMessage(chatId, r.reply)
+        return false
+      }
       return deliver(chatId, r.reply)
     } finally {
       clearTimeoutImpl(timer)
@@ -32,7 +37,7 @@ export function createHandler({ ownerId, telegram, engine, sessions, loginRunner
     await telegram.sendMessage(chatId, 'Сессия ВкусВилла закончилась. Сейчас придёт СМС, пришли код сюда.')
     const res = await loginRunner.start()
     sessions.setAwaitingCode(chatId, false)
-    if (!res.ok) { await telegram.sendMessage(chatId, `Войти не удалось: ${res.message}`); return }
+    if (!res.ok) { await telegram.sendMessage(chatId, `Войти не удалось: ${res.message ?? 'причина неизвестна'}`); return }
     await telegram.sendMessage(chatId, 'Вошла. Повторяю размещение…')
     const again = await ask(chatId, 'Сессия ВкусВилла восстановлена, повтори размещение корзины.')
     if (again) await telegram.sendMessage(chatId, 'Сессия снова не принята. Попробуй позже командой «новый заказ».')
@@ -59,7 +64,9 @@ export function createHandler({ ownerId, telegram, engine, sessions, loginRunner
 
   return {
     handleMessage(msg) {
-      if (!msg?.from || msg.from.id !== ownerId) return Promise.resolve()
+      // Бот отвечает только владелице и только в её личном чате: в группе
+      // её сообщение пришло бы с чужим chat.id.
+      if (!msg?.from || msg.from.id !== ownerId || msg.chat?.id !== ownerId) return Promise.resolve()
       const chatId = msg.chat.id
       const text = (msg.text ?? '').trim()
       const guard = p => p.catch(e => telegram.sendMessage(chatId, `Не получилось: ${e.message}`).catch(() => {}))

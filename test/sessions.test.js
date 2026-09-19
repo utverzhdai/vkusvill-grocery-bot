@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createSessions } from '../src/sessions.js'
 
 function memFs(initial) {
@@ -36,7 +36,13 @@ describe('sessions', () => {
     s1.set(1, 'abc'); s1.setAwaitingCode(1, true)
     const s2 = createSessions({ file: 'x.json', fs })
     expect(s2.get(1)).toBe('abc')
-    expect(s2.isAwaitingCode(1)).toBe(true)
+  })
+  it('сбрасывает ожидание кода при загрузке: флаг живёт только внутри процесса', () => {
+    const fs = memFs(JSON.stringify({
+      chats: { 1: { sessionId: 'abc', lastUsed: 0, awaitingCode: true } }
+    }))
+    const s = createSessions({ file: 'x.json', fs })
+    expect(s.isAwaitingCode(1)).toBe(false)
   })
   it('восстанавливает пустое состояние при повреждённом JSON', () => {
     const fs = memFs('не json')
@@ -59,9 +65,12 @@ describe('sessions', () => {
       existsSync: () => false,
       writeFileSync: () => { throw new Error('I/O error') }
     }
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const s = createSessions({ file: 'x.json', fs })
     expect(() => s.set(1, 'abc')).not.toThrow()
     expect(() => s.reset(1)).not.toThrow()
     expect(() => s.setAwaitingCode(1, true)).not.toThrow()
+    expect(errorSpy).toHaveBeenCalled()
+    errorSpy.mockRestore()
   })
 })

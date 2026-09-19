@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createHandler } from '../src/handler.js'
 import { createSessions } from '../src/sessions.js'
 
@@ -24,6 +24,13 @@ describe('handler', () => {
     const tg = fakeTelegram(); const eng = fakeEngine([])
     const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...noTimers })
     await h.handleMessage(msg('привет', 999, 999))
+    expect(tg.sent).toEqual([]); expect(eng.calls).toEqual([])
+  })
+
+  it('игнорирует сообщение владелицы из чужого чата', async () => {
+    const tg = fakeTelegram(); const eng = fakeEngine([])
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...noTimers })
+    await h.handleMessage(msg('привет', 42, 777))
     expect(tg.sent).toEqual([]); expect(eng.calls).toEqual([])
   })
 
@@ -76,12 +83,25 @@ describe('handler', () => {
     expect(tg.sent.at(-1).text).toBe('Корзина лежит.')
   })
 
-  it('ошибка движка уходит текстом', async () => {
+  it('ошибка движка уходит текстом и в журнал', async () => {
     const tg = fakeTelegram()
     const eng = fakeEngine([{ reply: 'Таймаут ответа модели (3 минуты). Повтори, пожалуйста.', sessionId: null, isError: true }])
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...noTimers })
     await h.handleMessage(msg('x'))
     expect(tg.sent[0].text).toMatch(/Таймаут/)
+    expect(errorSpy).toHaveBeenCalledWith('engine:', expect.stringMatching(/Таймаут/))
+    errorSpy.mockRestore()
+  })
+
+  it('пишет «причина неизвестна», если вход не объяснил отказ', async () => {
+    const tg = fakeTelegram()
+    const eng = fakeEngine([{ reply: 'Сессия протухла.\nAUTH_REQUIRED', sessionId: 's1', isError: false }])
+    const sessions = createSessions({ file: 'x', fs: memFs() })
+    const loginRunner = { start: async () => ({ ok: false }), submitCode: () => {} }
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions, loginRunner, ...noTimers })
+    await h.handleMessage(msg('да, собирай'))
+    expect(tg.sent.at(-1).text).toBe('Войти не удалось: причина неизвестна')
   })
 
   it('«новый заказ» сбрасывает ожидание кода, чтобы старый флаг не съел следующее сообщение', async () => {

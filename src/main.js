@@ -12,6 +12,11 @@ const engine = createEngine({ workspaceDir: cfg.workspaceDir, browserDir: cfg.br
 const loginRunner = createLoginRunner({ workspaceDir: cfg.workspaceDir, browserDir: cfg.browserDir, phone: cfg.phone })
 const handler = createHandler({ ownerId: cfg.ownerId, telegram, engine, sessions, loginRunner })
 
+// Одна потерянная ошибка не должна ронять процесс: systemd перезапустит, но
+// в журнале нужно видеть, что именно случилось.
+process.on('unhandledRejection', e => console.error('unhandledRejection:', e))
+process.on('uncaughtException', e => console.error('uncaughtException:', e))
+
 let offset = 0
 console.log('grocery-bot: запущен, long polling')
 for (;;) {
