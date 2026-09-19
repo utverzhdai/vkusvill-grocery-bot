@@ -78,13 +78,16 @@ try {
   if (!(await page.$(selectors.loggedIn))) { out({ status: 'auth_required' }); }
   else {
     if (!accept) throw new Error('не найдена кнопка «В корзину» в окне share_basket')
+    // Окно ссылки уже знает остаток на складе доставки по каждому товару (data-log-stock).
+    const stock = await page.$$eval(`${selectors.shareModal} [data-log-stock]`, els => Object.fromEntries(els.map(e => [e.getAttribute('data-id'), Number(e.getAttribute('data-log-stock'))])))
     await accept.click()
     accepted = true
     await page.waitForTimeout(1500) // сервер применяет содержимое ссылки к корзине
     await page.goto('https://vkusvill.ru/cart/', { waitUntil: 'domcontentloaded', timeout: 60_000 })
     await page.waitForSelector(selectors.cartItem, { timeout: 20_000 }).catch(() => {})
     const cart = await parseCart(page, selectors)
-    out({ status: 'ok', items: cart.items, total: cart.total, unavailable: cart.items.filter(i => !i.available).map(i => i.name) })
+    const outOfStock = Object.entries(stock).filter(([, n]) => !(n > 0)).map(([id]) => id)
+    out({ status: 'ok', items: cart.items, total: cart.total, stock, unavailable: [...new Set([...cart.items.filter(i => !i.available).map(i => i.xmlId ?? i.name), ...outOfStock])] })
   }
   }
 } catch (e) {

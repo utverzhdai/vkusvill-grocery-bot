@@ -12,6 +12,7 @@ const ALLOWED_TOOLS = [
   'Write(memory/**)',
   'Edit(memory/**)',
   'Bash(node tools/cart.mjs *)',
+  'Bash(node tools/vv.mjs *)',
 ]
 
 // Модель иногда пишет абсолютный путь к скрипту; без второго правила такая

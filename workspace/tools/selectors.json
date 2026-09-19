@@ -14,5 +14,6 @@
   "codeSubmit": "",
   "cartClear": ".js-delivery__basket--clear",
   "confirmAccept": "#js-lk-modal-confirm-callback",
-  "itemDelete": ".js-delivery__basket--del"
+  "itemDelete": ".js-delivery__basket--del",
+  "shareModal": "#js-lk-modal-shared-basket"
 }
