@@ -4,7 +4,7 @@
 import { chromium } from 'playwright'
 import { mkdirSync, writeFileSync } from 'node:fs'
 
-mkdirSync('spike/auto', { recursive: true })
+mkdirSync('spike/captures/auto', { recursive: true })
 const ctx = await chromium.launchPersistentContext('browser/profile-spike-login2', {
   headless: true, locale: 'ru-RU', viewport: { width: 1280, height: 900 },
   ...(process.env.PROXY ? { proxy: { server: process.env.PROXY } } : {}),
@@ -20,7 +20,7 @@ console.log('кнопок входа:', await page.locator('.js-user-load-login-
 await login.click({ timeout: 15000 })
 await page.waitForSelector('input[type=tel]', { timeout: 20000 }).catch(e => console.log('поле телефона не появилось:', e.message))
 await page.waitForTimeout(1500)
-writeFileSync('spike/auto/10-login-form.html', `<!-- ${page.url()} -->\n` + await page.content())
-await page.screenshot({ path: 'spike/auto/10-login-form.png' })
+writeFileSync('spike/captures/auto/10-login-form.html', `<!-- ${page.url()} -->\n` + await page.content())
+await page.screenshot({ path: 'spike/captures/auto/10-login-form.png' })
 console.log('снимок формы входа сохранён:', page.url())
 await ctx.close()

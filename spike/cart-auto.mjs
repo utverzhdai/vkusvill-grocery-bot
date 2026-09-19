@@ -6,10 +6,10 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 
 const link = process.argv[2]
 if (!link) { console.error('нужна ссылка share_basket'); process.exit(1) }
-mkdirSync('spike/auto', { recursive: true })
+mkdirSync('spike/captures/auto', { recursive: true })
 const save = async (page, name) => {
-  writeFileSync(`spike/auto/${name}.html`, `<!-- ${page.url()} -->\n` + await page.content())
-  await page.screenshot({ path: `spike/auto/${name}.png`, fullPage: true }).catch(() => {})
+  writeFileSync(`spike/captures/auto/${name}.html`, `<!-- ${page.url()} -->\n` + await page.content())
+  await page.screenshot({ path: `spike/captures/auto/${name}.png`, fullPage: true }).catch(() => {})
   console.log('снимок', name, page.url())
 }
 
