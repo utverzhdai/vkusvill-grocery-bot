@@ -73,4 +73,14 @@ describe('sessions', () => {
     expect(errorSpy).toHaveBeenCalled()
     errorSpy.mockRestore()
   })
+
+  it('сбрасывает все диалоги при смене версии правил и сохраняет новую версию', () => {
+    const fs = memFs(JSON.stringify({ version: 'v1', chats: { 1: { sessionId: 'abc', lastUsed: Date.now(), awaitingCode: false } } }))
+    const same = createSessions({ file: 'x.json', fs, version: 'v1' })
+    expect(same.get(1)).toBe('abc')
+    const changed = createSessions({ file: 'x.json', fs, version: 'v2' })
+    expect(changed.get(1)).toBeNull()
+    changed.set(1, 'new')
+    expect(JSON.parse(fs.dump()).version).toBe('v2')
+  })
 })

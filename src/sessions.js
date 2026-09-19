@@ -2,11 +2,14 @@ import * as nodeFs from 'node:fs'
 
 const DAY_HALF = 12 * 60 * 60 * 1000
 
-export function createSessions({ file, ttlMs = DAY_HALF, now = Date.now, fs = nodeFs }) {
+export function createSessions({ file, ttlMs = DAY_HALF, now = Date.now, fs = nodeFs, version = null }) {
   let state = { chats: {} }
   if (fs.existsSync(file)) {
     try { state = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { state = { chats: {} } }
   }
+  // Смена правил (версия = хеш системного промпта) обнуляет старые диалоги:
+  // иначе модель продолжает разговор, начатый по прежним правилам.
+  if (version !== null && state.version !== version) state = { chats: {}, version }
   // Ожидание кода из СМС живёт только внутри процесса: после перезапуска
   // никакой login.mjs кода уже не ждёт, флаг съел бы следующее сообщение.
   for (const c of Object.values(state.chats ?? {})) c.awaitingCode = false

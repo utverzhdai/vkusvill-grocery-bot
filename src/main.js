@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { loadConfig } from './config.js'
 import { createTelegram } from './telegram.js'
 import { createSessions } from './sessions.js'
@@ -7,7 +10,9 @@ import { createHandler } from './handler.js'
 
 const cfg = loadConfig()
 const telegram = createTelegram({ token: cfg.telegramToken, apiBase: cfg.apiBase })
-const sessions = createSessions({ file: cfg.stateFile })
+// Версия правил: при изменении системного промпта старые диалоги сбрасываются.
+const promptVersion = createHash('sha1').update(readFileSync(join(cfg.workspaceDir, 'prompts', 'system.md'))).digest('hex')
+const sessions = createSessions({ file: cfg.stateFile, version: promptVersion })
 const engine = createEngine({ workspaceDir: cfg.workspaceDir, browserDir: cfg.browserDir, oauthToken: cfg.oauthToken })
 const loginRunner = createLoginRunner({ workspaceDir: cfg.workspaceDir, browserDir: cfg.browserDir, phone: cfg.phone })
 const handler = createHandler({ ownerId: cfg.ownerId, telegram, engine, sessions, loginRunner })
