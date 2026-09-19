@@ -1,0 +1,73 @@
+import { parseReply } from './photos.js'
+
+const CODE_RE = /^\d{4,6}$/
+const RESET_RE = /^новый заказ$/i
+
+export function createHandler({ ownerId, telegram, engine, sessions, loginRunner, statusDelayMs = 5000, setTimeoutImpl = setTimeout, clearTimeoutImpl = clearTimeout }) {
+  const queues = new Map() // chatId → promise-цепочка, чтобы сообщения одного чата шли по порядку
+
+  async function deliver(chatId, reply) {
+    const { text, photos, authRequired } = parseReply(reply)
+    for (const url of photos) {
+      try { await telegram.sendPhoto(chatId, url) } catch { /* одна битая картинка не должна ронять ответ */ }
+    }
+    if (text) await telegram.sendMessage(chatId, text)
+    return authRequired
+  }
+
+  async function ask(chatId, text) {
+    const timer = setTimeoutImpl(() => { telegram.sendMessage(chatId, '⏳ Работаю…').catch(() => {}) }, statusDelayMs)
+    try {
+      const r = await engine.run(text, sessions.get(chatId))
+      if (r.sessionId) sessions.set(chatId, r.sessionId)
+      if (r.isError) { await telegram.sendMessage(chatId, r.reply); return false }
+      return deliver(chatId, r.reply)
+    } finally {
+      clearTimeoutImpl(timer)
+    }
+  }
+
+  async function relogin(chatId) {
+    sessions.setAwaitingCode(chatId, true)
+    await telegram.sendMessage(chatId, 'Сессия ВкусВилла закончилась. Сейчас придёт СМС, пришли код сюда.')
+    const res = await loginRunner.start()
+    sessions.setAwaitingCode(chatId, false)
+    if (!res.ok) { await telegram.sendMessage(chatId, `Войти не удалось: ${res.message}`); return }
+    await telegram.sendMessage(chatId, 'Вошла. Повторяю размещение…')
+    const again = await ask(chatId, 'Сессия ВкусВилла восстановлена, повтори размещение корзины.')
+    if (again) await telegram.sendMessage(chatId, 'Сессия снова не принята. Попробуй позже командой «новый заказ».')
+  }
+
+  async function process(msg) {
+    const chatId = msg.chat.id
+    const text = (msg.text ?? '').trim()
+    if (!text) return
+    if (RESET_RE.test(text)) {
+      sessions.reset(chatId)
+      sessions.setAwaitingCode(chatId, false)
+      await telegram.sendMessage(chatId, 'Начинаем с чистого листа. Что готовим?')
+      return
+    }
+    if (sessions.isAwaitingCode(chatId) && CODE_RE.test(text)) {
+      loginRunner.submitCode(text)
+      await telegram.sendMessage(chatId, 'Ввожу код…')
+      return
+    }
+    const authRequired = await ask(chatId, text)
+    if (authRequired) await relogin(chatId)
+  }
+
+  return {
+    handleMessage(msg) {
+      if (!msg?.from || msg.from.id !== ownerId) return Promise.resolve()
+      const chatId = msg.chat.id
+      const text = (msg.text ?? '').trim()
+      // Код СМС не должен стоять в очереди за размещением, которое его и ждёт.
+      if (sessions.isAwaitingCode(chatId) && CODE_RE.test(text)) return process(msg)
+      const prev = queues.get(chatId) ?? Promise.resolve()
+      const next = prev.then(() => process(msg)).catch(e => telegram.sendMessage(chatId, `Не получилось: ${e.message}`).catch(() => {}))
+      queues.set(chatId, next)
+      return next
+    },
+  }
+}

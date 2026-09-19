@@ -1,0 +1,96 @@
+import { describe, it, expect } from 'vitest'
+import { createHandler } from '../src/handler.js'
+import { createSessions } from '../src/sessions.js'
+
+const memFs = () => { let c; return { existsSync: () => c !== undefined, readFileSync: () => c, writeFileSync: (_p, d) => { c = d } } }
+function fakeTelegram() {
+  const sent = []
+  return {
+    sent,
+    sendMessage: async (chatId, text) => { sent.push({ type: 'text', chatId, text }) },
+    sendPhoto: async (chatId, photo) => { sent.push({ type: 'photo', chatId, photo }) },
+    sendChatAction: async () => {},
+  }
+}
+function fakeEngine(replies) {
+  const calls = []
+  return { calls, run: async (text, sessionId) => { calls.push({ text, sessionId }); return replies.shift() } }
+}
+const msg = (text, from = 42, chat = 42) => ({ text, from: { id: from }, chat: { id: chat } })
+const noTimers = { setTimeoutImpl: () => 0, clearTimeoutImpl: () => {} }
+
+describe('handler', () => {
+  it('игнорирует чужие сообщения', async () => {
+    const tg = fakeTelegram(); const eng = fakeEngine([])
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...noTimers })
+    await h.handleMessage(msg('привет', 999, 999))
+    expect(tg.sent).toEqual([]); expect(eng.calls).toEqual([])
+  })
+
+  it('передаёт текст движку, шлёт фото и текст, запоминает сессию', async () => {
+    const tg = fakeTelegram()
+    const eng = fakeEngine([{ reply: 'Шарлотка\nPHOTO: https://a/1.webp\nИсточник: vkusvill.ru', sessionId: 's1', isError: false }])
+    const sessions = createSessions({ file: 'x', fs: memFs() })
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions, loginRunner: {}, ...noTimers })
+    await h.handleMessage(msg('хочу шарлотку'))
+    expect(eng.calls[0]).toEqual({ text: 'хочу шарлотку', sessionId: null })
+    expect(tg.sent).toEqual([
+      { type: 'photo', chatId: 42, photo: 'https://a/1.webp' },
+      { type: 'text', chatId: 42, text: 'Шарлотка\nИсточник: vkusvill.ru' },
+    ])
+    expect(sessions.get(42)).toBe('s1')
+  })
+
+  it('продолжает сессию и сбрасывает её по «новый заказ»', async () => {
+    const tg = fakeTelegram()
+    const eng = fakeEngine([{ reply: 'ок', sessionId: 's1', isError: false }, { reply: 'ок2', sessionId: 's2', isError: false }])
+    const sessions = createSessions({ file: 'x', fs: memFs() })
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions, loginRunner: {}, ...noTimers })
+    await h.handleMessage(msg('а'))
+    await h.handleMessage(msg('Новый заказ'))
+    await h.handleMessage(msg('б'))
+    expect(eng.calls.map(c => c.sessionId)).toEqual([null, null])
+    expect(tg.sent[1].text).toMatch(/чистого листа/)
+  })
+
+  it('при AUTH_REQUIRED запускает вход, принимает код и повторяет размещение', async () => {
+    const tg = fakeTelegram()
+    const eng = fakeEngine([
+      { reply: 'Сессия протухла.\nAUTH_REQUIRED', sessionId: 's1', isError: false },
+      { reply: 'Корзина лежит.', sessionId: 's1', isError: false },
+    ])
+    const sessions = createSessions({ file: 'x', fs: memFs() })
+    let resolveLogin; const codes = []
+    const loginRunner = { start: () => new Promise(r => { resolveLogin = r }), submitCode: c => codes.push(c) }
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions, loginRunner, ...noTimers })
+    const first = h.handleMessage(msg('да, собирай'))
+    await new Promise(r => setTimeout(r, 10))
+    expect(sessions.isAwaitingCode(42)).toBe(true)
+    expect(tg.sent.at(-1).text).toMatch(/пришли код/)
+    await h.handleMessage(msg('1234'))
+    expect(codes).toEqual(['1234'])
+    resolveLogin({ ok: true })
+    await first
+    expect(sessions.isAwaitingCode(42)).toBe(false)
+    expect(eng.calls[1].text).toMatch(/восстановлена/)
+    expect(tg.sent.at(-1).text).toBe('Корзина лежит.')
+  })
+
+  it('ошибка движка уходит текстом', async () => {
+    const tg = fakeTelegram()
+    const eng = fakeEngine([{ reply: 'Таймаут ответа модели (3 минуты). Повтори, пожалуйста.', sessionId: null, isError: true }])
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...noTimers })
+    await h.handleMessage(msg('x'))
+    expect(tg.sent[0].text).toMatch(/Таймаут/)
+  })
+
+  it('«новый заказ» сбрасывает ожидание кода, чтобы старый флаг не съел следующее сообщение', async () => {
+    const tg = fakeTelegram()
+    const eng = fakeEngine([])
+    const sessions = createSessions({ file: 'x', fs: memFs() })
+    sessions.setAwaitingCode(42, true)
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions, loginRunner: {}, ...noTimers })
+    await h.handleMessage(msg('новый заказ'))
+    expect(sessions.isAwaitingCode(42)).toBe(false)
+  })
+})
