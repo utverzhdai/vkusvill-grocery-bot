@@ -27,7 +27,7 @@ async function waitForCode(maxMs = 180_000) {
 }
 
 if (!phone) { out({ status: 'error', message: 'нужен номер телефона' }, 1); process.exit() }
-mkdirSync(browserDir, { recursive: true })
+mkdirSync(browserDir, { recursive: true, mode: 0o700 })
 if (existsSync(codeFile)) unlinkSync(codeFile)
 
 let ctx
@@ -38,18 +38,21 @@ try {
     ...(process.env.PROXY ? { proxy: { server: process.env.PROXY } } : {}),
   })
   const page = await ctx.newPage()
-  await page.goto('https://vkusvill.ru/', { waitUntil: 'networkidle', timeout: 60_000 })
+  // networkidle на главной не наступает никогда: баннеры и метрики тянут запросы постоянно.
+  await page.goto('https://vkusvill.ru/', { waitUntil: 'domcontentloaded', timeout: 60_000 })
   if (await page.$(s.loggedIn)) { out({ status: 'ok', note: 'уже в аккаунте' }, 0) }
   else {
     // Форма входа подгружается динамически по клику на элемент с классом
     // js-user-load-login-api (кнопка «Войти» в шапке).
     if (s.loginOpen) await page.locator(s.loginOpen).first().click({ timeout: 15_000 })
-    await page.fill(s.phoneInput, phone)
+    // Поле телефона с маской: fill вставляет строку целиком и маска её ломает,
+    // поэтому набираем последние 10 цифр посимвольно.
+    await page.locator(s.phoneInput).first().pressSequentially(phone.replace(/\D/g, '').slice(-10), { delay: 50 })
     if (s.phoneSubmit) await page.click(s.phoneSubmit)
     else await page.press(s.phoneInput, 'Enter')
     await page.waitForSelector(s.codeInput, { timeout: 30_000 })
     const code = await waitForCode()
-    await page.fill(s.codeInput, code)
+    await page.locator(s.codeInput).first().fill(code)
     if (s.codeSubmit) await page.click(s.codeSubmit).catch(() => {})
     else await page.press(s.codeInput, 'Enter').catch(() => {})
     await page.waitForSelector(s.loggedIn, { timeout: 30_000 })
