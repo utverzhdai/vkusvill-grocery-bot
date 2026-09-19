@@ -6,7 +6,7 @@
 
 **Architecture:** Бот на Node.js принимает сообщения Telegram по long polling и передаёт их движку. Движок v1: `claude -p` (Claude Code headless, подписка) с MCP ВкусВилла, веб-поиском, файловой памятью и одним разрешённым Bash-скриптом `tools/cart.mjs`, который через Playwright открывает ссылку корзины в сохранённой сессии владелицы и возвращает JSON с наличием. Вход во ВкусВилл по СМС: бот запускает `tools/login.mjs`, код владелица присылает в чат.
 
-**Tech Stack:** Node.js 22+, native `fetch`, Playwright (Chromium), Claude Code CLI, Vitest. Сервер 109.94.211.125 (Астана), systemd.
+**Tech Stack:** Node.js 22+, native `fetch`, Playwright (Chromium), Claude Code CLI, Vitest. Сервер <IP сервера> (вне РФ), systemd.
 
 **Spec:** `docs/superpowers/specs/2026-09-13-grocery-bot-design.md`
 
@@ -855,7 +855,7 @@ Expected: PASS, 5 тестов.
 `workspace/prompts/system.md`:
 
 ```markdown
-Ты продуктовый помощник Ольги. Ты работаешь в Telegram, поэтому отвечаешь коротко, без markdown-таблиц (Telegram их не рисует), списки простым текстом. Обращение на «ты».
+Ты продуктовый помощник владелицы. Ты работаешь в Telegram, поэтому отвечаешь коротко, без markdown-таблиц (Telegram их не рисует), списки простым текстом. Обращение на «ты».
 
 ## Что ты делаешь
 1. По запросу блюда находишь рецепт с источником и присылаешь его.
@@ -863,7 +863,7 @@ Expected: PASS, 5 тестов.
 3. После «да» создаёшь ссылку на корзину и размещаешь её в аккаунт через tools/cart.mjs, проверяешь наличие, предлагаешь замены.
 
 ## Рецепты: только с источником
-- Порядок поиска: (1) vkusvill_recipes через MCP, там уже привязаны товары; (2) если не нашлось, WebSearch по кулинарным сайтам, возьми 2–3 рецепта с высоким рейтингом, сверь ключевые моменты (тип теста, температура, время) и выбери один, дай на него ссылку; (3) если Ольга прислала свой рецепт или ссылку, работай по нему.
+- Порядок поиска: (1) vkusvill_recipes через MCP, там уже привязаны товары; (2) если не нашлось, WebSearch по кулинарным сайтам, возьми 2–3 рецепта с высоким рейтингом, сверь ключевые моменты (тип теста, температура, время) и выбери один, дай на него ссылку; (3) если владелица прислала свой рецепт или ссылку, работай по нему.
 - Никогда не пиши рецепт по памяти. Нет источника: скажи об этом и попроси ссылку.
 - Если источники расходятся в ключевом моменте, скажи об этом одной строкой.
 - Если блюдо противоречиво или не существует (например, «свиные крылышки»), скажи прямо и предложи реальное.
@@ -872,12 +872,12 @@ Expected: PASS, 5 тестов.
 ## Корзина: только реальные товары
 - Перед подбором прочитай memory/pantry.md и memory/preferences.md.
 - Каждая позиция это конкретный xml_id из vkusvill_products_search. Ищи с vvonly=0, сортировка popularity, режим custom с полями xml_id, name, price, weight, unit.
-- Не нашёл подходящего: спроси Ольгу, не клади похожее молча.
+- Не нашёл подходящего: спроси владелицу, не клади похожее молча.
 - Сначала покажи список: строка на позицию «название товара, вес, цена», внизу итог. Потом вопрос «Собираю?». Правки словами до подтверждения.
 - После подтверждения: vkusvill_cart_link_create (до 20 позиций на ссылку; больше, значит несколько ссылок подряд), затем запусти `node tools/cart.mjs <ссылка>` и прочитай JSON из stdout.
-- Если cart.mjs вернул status "ok": позиции с available=false покажи Ольге, найди аналоги через vkusvill_product_analogs, предложи замену, после согласия сделай новую ссылку только с заменами и снова запусти cart.mjs.
+- Если cart.mjs вернул status "ok": позиции с available=false покажи владелице, найди аналоги через vkusvill_product_analogs, предложи замену, после согласия сделай новую ссылку только с заменами и снова запусти cart.mjs.
 - Если cart.mjs вернул status "auth_required": ответь коротко и добавь отдельной строкой ровно `AUTH_REQUIRED`. Бот сам проведёт вход и попросит тебя повторить.
-- Если cart.mjs вернул status "error": отправь Ольге саму ссылку на корзину и напиши, что положить автоматически не вышло, по ссылке корзина откроется одним тапом.
+- Если cart.mjs вернул status "error": отправь владелице саму ссылку на корзину и напиши, что положить автоматически не вышло, по ссылке корзина откроется одним тапом.
 
 ## Память
 - «Дома всегда есть X» пиши в раздел «Всегда есть» файла memory/pantry.md.
@@ -929,7 +929,7 @@ git commit -m "feat: движок Claude Code, системный промпт, 
 
 ```html
 <!doctype html><html><body>
-<header><span class="profile-name">Ольга</span></header>
+<header><span class="profile-name">владелица</span></header>
 <ul>
   <li class="item"><span class="name">Сыр «Пармезан» 100 г</span><span class="qty">1</span><span class="price">286 ₽</span></li>
   <li class="item unavailable"><span class="name">Бекон 200 г</span><span class="qty">2</span><span class="price">350 ₽</span></li>
@@ -1571,7 +1571,7 @@ git commit -m "feat: точка входа и long polling"
 
 ---
 
-### Task 10: Развёртывание на 109.94 и приёмка
+### Task 10: Развёртывание на <сервер> и приёмка
 
 **Files:**
 - Create: `deploy/grocery-bot.service`, `DEPLOY.md`
@@ -1607,7 +1607,7 @@ WantedBy=multi-user.target
 ```markdown
 # Развёртывание
 
-Сервер: 109.94.211.125 (Астана). Telegram и Anthropic доступны оттуда напрямую.
+Сервер: <IP сервера> (вне РФ). Telegram и Anthropic доступны оттуда напрямую.
 
 ## Один раз
 
@@ -1624,8 +1624,8 @@ sudo -u grocery bash -c 'cd /opt/grocery-bot && npx playwright install --with-de
 
 ```bash
 tar --exclude=node_modules --exclude=browser --exclude=.env --exclude=state.json -czf /tmp/grocery.tgz .
-scp /tmp/grocery.tgz root@109.94.211.125:/tmp/
-ssh root@109.94.211.125 'cd /opt/grocery-bot && tar xzf /tmp/grocery.tgz && chown -R grocery:grocery . && sudo -u grocery npm ci --omit=dev'
+scp /tmp/grocery.tgz root@<IP сервера>:/tmp/
+ssh root@<IP сервера> 'cd /opt/grocery-bot && tar xzf /tmp/grocery.tgz && chown -R grocery:grocery . && sudo -u grocery npm ci --omit=dev'
 ```
 
 ## Секреты
