@@ -93,4 +93,15 @@ describe('handler', () => {
     await h.handleMessage(msg('новый заказ'))
     expect(sessions.isAwaitingCode(42)).toBe(false)
   })
+
+  it('ошибка в обходе очереди для кода не роняет handleMessage необработанным отказом', async () => {
+    const tg = fakeTelegram()
+    const eng = fakeEngine([])
+    const sessions = createSessions({ file: 'x', fs: memFs() })
+    sessions.setAwaitingCode(42, true)
+    const loginRunner = { start: async () => ({ ok: true }), submitCode: () => { throw new Error('boom') } }
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions, loginRunner, ...noTimers })
+    await expect(h.handleMessage(msg('1234'))).resolves.toBeUndefined()
+    expect(tg.sent.at(-1).text).toMatch(/^Не получилось/)
+  })
 })

@@ -62,10 +62,11 @@ export function createHandler({ ownerId, telegram, engine, sessions, loginRunner
       if (!msg?.from || msg.from.id !== ownerId) return Promise.resolve()
       const chatId = msg.chat.id
       const text = (msg.text ?? '').trim()
+      const guard = p => p.catch(e => telegram.sendMessage(chatId, `Не получилось: ${e.message}`).catch(() => {}))
       // Код СМС не должен стоять в очереди за размещением, которое его и ждёт.
-      if (sessions.isAwaitingCode(chatId) && CODE_RE.test(text)) return process(msg)
+      if (sessions.isAwaitingCode(chatId) && CODE_RE.test(text)) return guard(process(msg))
       const prev = queues.get(chatId) ?? Promise.resolve()
-      const next = prev.then(() => process(msg)).catch(e => telegram.sendMessage(chatId, `Не получилось: ${e.message}`).catch(() => {}))
+      const next = guard(prev.then(() => process(msg)))
       queues.set(chatId, next)
       return next
     },
