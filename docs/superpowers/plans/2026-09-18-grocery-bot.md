@@ -1045,13 +1045,27 @@ const selectors = JSON.parse(readFileSync(join(here, 'selectors.json'), 'utf8'))
 mkdirSync(browserDir, { recursive: true })
 let ctx
 try {
-  ctx = await chromium.launchPersistentContext(join(browserDir, 'profile'), { headless: true, locale: 'ru-RU' })
+  ctx = await chromium.launchPersistentContext(join(browserDir, 'profile'), {
+    headless: true, locale: 'ru-RU',
+    // Локальная отладка: PROXY=socks5://127.0.0.1:1081 (домашний VPN ВкусВилл не пускает). На сервере не нужен.
+    ...(process.env.PROXY ? { proxy: { server: process.env.PROXY } } : {}),
+  })
   const page = await ctx.newPage()
-  await page.goto(link, { waitUntil: 'networkidle', timeout: 60_000 })
-  await page.waitForTimeout(3000)
-  const cart = await parseCart(page, selectors)
-  if (!cart.loggedIn) { out({ status: 'auth_required' }); }
-  else out({ status: 'ok', items: cart.items, total: cart.total, unavailable: cart.items.filter(i => !i.available).map(i => i.name) })
+  await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+  await page.waitForTimeout(4000)
+  // Под входом сайт показывает модалку «С вами поделились товарами» с кнопкой «В корзину».
+  // Без входа модалка другая (кнопка «Проверить наличие»), и товары в аккаунт не попадают.
+  if (!(await page.$(selectors.loggedIn))) { out({ status: 'auth_required' }); }
+  else {
+    const accept = await page.$(selectors.shareAccept)
+    if (!accept) throw new Error('не найдена кнопка «В корзину» в окне share_basket')
+    await accept.click()
+    await page.waitForTimeout(4000)
+    await page.goto('https://vkusvill.ru/cart/', { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    await page.waitForTimeout(4000)
+    const cart = await parseCart(page, selectors)
+    out({ status: 'ok', items: cart.items, total: cart.total, unavailable: cart.items.filter(i => !i.available).map(i => i.name) })
+  }
 } catch (e) {
   const screenshot = join(browserDir, 'last-error.png')
   try { const p = ctx?.pages()[0]; if (p) await p.screenshot({ path: screenshot }) } catch {}
