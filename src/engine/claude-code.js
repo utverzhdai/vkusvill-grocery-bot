@@ -63,7 +63,7 @@ export function buildArgs({ sessionId, model = 'sonnet', workspaceDir = null }) 
   return args
 }
 
-export function createEngine({ workspaceDir, browserDir, oauthToken, spawnImpl = nodeSpawn, timeoutMs = 180_000, model = 'sonnet' }) {
+export function createEngine({ workspaceDir, browserDir, oauthToken, spawnImpl = nodeSpawn, timeoutMs = 480_000, model = 'sonnet' }) {
   return {
     run(text, sessionId) {
       return new Promise(resolve => {
@@ -93,7 +93,7 @@ export function createEngine({ workspaceDir, browserDir, oauthToken, spawnImpl =
             else {
               try { process.kill(-child.pid, 'SIGKILL') } catch { child.kill() }
             }
-            finish({ reply: 'Таймаут ответа модели (3 минуты). Повтори, пожалуйста.', sessionId, isError: true })
+            finish({ reply: 'Таймаут ответа модели (8 минут). Корзина могла собраться частично — проверь приложение или повтори запрос.', sessionId, isError: true })
           }, timeoutMs)
           child.stdout.on('data', d => { out += d })
           child.stderr.on('data', d => { err += d })

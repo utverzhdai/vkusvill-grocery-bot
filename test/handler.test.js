@@ -90,7 +90,7 @@ describe('handler', () => {
 
   it('ошибка движка уходит текстом и в журнал', async () => {
     const tg = fakeTelegram()
-    const eng = fakeEngine([{ reply: 'Таймаут ответа модели (3 минуты). Повтори, пожалуйста.', sessionId: null, isError: true }])
+    const eng = fakeEngine([{ reply: 'Таймаут ответа модели (8 минут). Корзина могла собраться частично — проверь приложение или повтори запрос.', sessionId: null, isError: true }])
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...noTimers })
     await h.handleMessage(msg('x'))
