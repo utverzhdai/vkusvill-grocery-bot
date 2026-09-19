@@ -2,8 +2,9 @@ import { parseReply } from './photos.js'
 
 const CODE_RE = /^\d{4,6}$/
 const RESET_RE = /^новый заказ$/i
+const WORKING_FRAMES = ['Работаю.', 'Работаю..', 'Работаю...']
 
-export function createHandler({ ownerId, telegram, engine, sessions, loginRunner, statusDelayMs = 5000, setTimeoutImpl = setTimeout, clearTimeoutImpl = clearTimeout }) {
+export function createHandler({ ownerId, telegram, engine, sessions, loginRunner, dotsMs = 1500, setIntervalImpl = setInterval, clearIntervalImpl = clearInterval }) {
   const queues = new Map() // chatId → promise-цепочка, чтобы сообщения одного чата шли по порядку
 
   async function deliver(chatId, reply) {
@@ -15,12 +16,31 @@ export function createHandler({ ownerId, telegram, engine, sessions, loginRunner
     return authRequired
   }
 
-  async function ask(chatId, text) {
+  // Пока модель думает, в чате висит «Работаю» с бегущими точками; после ответа сообщение удаляется.
+  async function startWorking(chatId) {
     telegram.sendChatAction(chatId).catch(() => {})
-    const timer = setTimeoutImpl(() => { telegram.sendMessage(chatId, '⏳ Работаю…').catch(() => {}) }, statusDelayMs)
+    const status = await telegram.sendMessage(chatId, WORKING_FRAMES[0]).catch(() => null)
+    if (!status?.message_id) return () => {}
+    let frame = 0
+    const timer = setIntervalImpl(() => {
+      frame = (frame + 1) % WORKING_FRAMES.length
+      telegram.editMessageText(chatId, status.message_id, WORKING_FRAMES[frame]).catch(() => {})
+    }, dotsMs)
+    let stopped = false
+    return async () => {
+      if (stopped) return
+      stopped = true
+      clearIntervalImpl(timer)
+      await telegram.deleteMessage(chatId, status.message_id).catch(() => {})
+    }
+  }
+
+  async function ask(chatId, text) {
+    const stopWorking = await startWorking(chatId)
     try {
       const r = await engine.run(text, sessions.get(chatId))
       if (r.sessionId) sessions.set(chatId, r.sessionId)
+      await stopWorking()
       if (r.isError) {
         console.error('engine:', r.reply.slice(0, 200))
         await telegram.sendMessage(chatId, r.reply)
@@ -28,7 +48,7 @@ export function createHandler({ ownerId, telegram, engine, sessions, loginRunner
       }
       return deliver(chatId, r.reply)
     } finally {
-      clearTimeoutImpl(timer)
+      await stopWorking()
     }
   }
 
@@ -69,7 +89,7 @@ export function createHandler({ ownerId, telegram, engine, sessions, loginRunner
       if (!msg?.from || msg.from.id !== ownerId || msg.chat?.id !== ownerId) return Promise.resolve()
       const chatId = msg.chat.id
       const text = (msg.text ?? '').trim()
-      const guard = p => p.catch(e => telegram.sendMessage(chatId, `Не получилось: ${e.message}`).catch(() => {}))
+      const guard = p => p.catch(async e => { await telegram.sendMessage(chatId, `Не получилось: ${e.message}`).catch(() => {}) })
       // Код СМС не должен стоять в очереди за размещением, которое его и ждёт.
       if (sessions.isAwaitingCode(chatId) && CODE_RE.test(text)) return guard(process(msg))
       const prev = queues.get(chatId) ?? Promise.resolve()

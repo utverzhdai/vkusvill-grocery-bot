@@ -35,5 +35,11 @@ export function createTelegram({ token, apiBase, fetchImpl = fetch }) {
 
     sendChatAction: (chatId, action = 'typing') =>
       call('sendChatAction', { chat_id: chatId, action }),
+
+    editMessageText: (chatId, messageId, text) =>
+      call('editMessageText', { chat_id: chatId, message_id: messageId, text }),
+
+    deleteMessage: (chatId, messageId) =>
+      call('deleteMessage', { chat_id: chatId, message_id: messageId }),
   }
 }

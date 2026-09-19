@@ -4,12 +4,17 @@ import { createSessions } from '../src/sessions.js'
 
 const memFs = () => { let c; return { existsSync: () => c !== undefined, readFileSync: () => c, writeFileSync: (_p, d) => { c = d } } }
 function fakeTelegram() {
-  const sent = []
+  const sent = []; const edits = []; const deleted = []
+  let nextId = 1
   return {
-    sent,
-    sendMessage: async (chatId, text) => { sent.push({ type: 'text', chatId, text }) },
-    sendPhoto: async (chatId, photo) => { sent.push({ type: 'photo', chatId, photo }) },
+    sent, edits, deleted,
+    // visible() — что осталось в чате после удаления служебных сообщений «Работаю»
+    visible: () => sent.filter(m => !deleted.includes(m.message_id)).map(({ message_id, ...m }) => m),
+    sendMessage: async (chatId, text) => { const m = { type: 'text', chatId, text, message_id: nextId++ }; sent.push(m); return { message_id: m.message_id } },
+    sendPhoto: async (chatId, photo) => { sent.push({ type: 'photo', chatId, photo, message_id: nextId++ }) },
     sendChatAction: async () => {},
+    editMessageText: async (chatId, messageId, text) => { edits.push({ messageId, text }) },
+    deleteMessage: async (chatId, messageId) => { deleted.push(messageId) },
   }
 }
 function fakeEngine(replies) {
@@ -17,21 +22,21 @@ function fakeEngine(replies) {
   return { calls, run: async (text, sessionId) => { calls.push({ text, sessionId }); return replies.shift() } }
 }
 const msg = (text, from = 42, chat = 42) => ({ text, from: { id: from }, chat: { id: chat } })
-const noTimers = { setTimeoutImpl: () => 0, clearTimeoutImpl: () => {} }
+const noTimers = { setIntervalImpl: () => 0, clearIntervalImpl: () => {} }
 
 describe('handler', () => {
   it('игнорирует чужие сообщения', async () => {
     const tg = fakeTelegram(); const eng = fakeEngine([])
     const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...noTimers })
     await h.handleMessage(msg('привет', 999, 999))
-    expect(tg.sent).toEqual([]); expect(eng.calls).toEqual([])
+    expect(tg.visible()).toEqual([]); expect(eng.calls).toEqual([])
   })
 
   it('игнорирует сообщение владелицы из чужого чата', async () => {
     const tg = fakeTelegram(); const eng = fakeEngine([])
     const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...noTimers })
     await h.handleMessage(msg('привет', 42, 777))
-    expect(tg.sent).toEqual([]); expect(eng.calls).toEqual([])
+    expect(tg.visible()).toEqual([]); expect(eng.calls).toEqual([])
   })
 
   it('передаёт текст движку, шлёт фото и текст, запоминает сессию', async () => {
@@ -41,7 +46,7 @@ describe('handler', () => {
     const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions, loginRunner: {}, ...noTimers })
     await h.handleMessage(msg('хочу шарлотку'))
     expect(eng.calls[0]).toEqual({ text: 'хочу шарлотку', sessionId: null })
-    expect(tg.sent).toEqual([
+    expect(tg.visible()).toEqual([
       { type: 'photo', chatId: 42, photo: 'https://a/1.webp' },
       { type: 'text', chatId: 42, text: 'Шарлотка\nИсточник: vkusvill.ru' },
     ])
@@ -57,7 +62,7 @@ describe('handler', () => {
     await h.handleMessage(msg('Новый заказ'))
     await h.handleMessage(msg('б'))
     expect(eng.calls.map(c => c.sessionId)).toEqual([null, null])
-    expect(tg.sent[1].text).toMatch(/чистого листа/)
+    expect(tg.visible()[1].text).toMatch(/чистого листа/)
   })
 
   it('при AUTH_REQUIRED запускает вход, принимает код и повторяет размещение', async () => {
@@ -73,14 +78,14 @@ describe('handler', () => {
     const first = h.handleMessage(msg('да, собирай'))
     await new Promise(r => setTimeout(r, 10))
     expect(sessions.isAwaitingCode(42)).toBe(true)
-    expect(tg.sent.at(-1).text).toMatch(/пришли код/)
+    expect(tg.visible().at(-1).text).toMatch(/пришли код/)
     await h.handleMessage(msg('1234'))
     expect(codes).toEqual(['1234'])
     resolveLogin({ ok: true })
     await first
     expect(sessions.isAwaitingCode(42)).toBe(false)
     expect(eng.calls[1].text).toMatch(/восстановлена/)
-    expect(tg.sent.at(-1).text).toBe('Корзина лежит.')
+    expect(tg.visible().at(-1).text).toBe('Корзина лежит.')
   })
 
   it('ошибка движка уходит текстом и в журнал', async () => {
@@ -89,7 +94,7 @@ describe('handler', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...noTimers })
     await h.handleMessage(msg('x'))
-    expect(tg.sent[0].text).toMatch(/Таймаут/)
+    expect(tg.visible()[0].text).toMatch(/Таймаут/)
     expect(errorSpy).toHaveBeenCalledWith('engine:', expect.stringMatching(/Таймаут/))
     errorSpy.mockRestore()
   })
@@ -101,7 +106,7 @@ describe('handler', () => {
     const loginRunner = { start: async () => ({ ok: false }), submitCode: () => {} }
     const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions, loginRunner, ...noTimers })
     await h.handleMessage(msg('да, собирай'))
-    expect(tg.sent.at(-1).text).toBe('Войти не удалось: причина неизвестна')
+    expect(tg.visible().at(-1).text).toBe('Войти не удалось: причина неизвестна')
   })
 
   it('«новый заказ» сбрасывает ожидание кода, чтобы старый флаг не съел следующее сообщение', async () => {
@@ -122,6 +127,20 @@ describe('handler', () => {
     const loginRunner = { start: async () => ({ ok: true }), submitCode: () => { throw new Error('boom') } }
     const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions, loginRunner, ...noTimers })
     await expect(h.handleMessage(msg('1234'))).resolves.toBeUndefined()
-    expect(tg.sent.at(-1).text).toMatch(/^Не получилось/)
+    expect(tg.visible().at(-1).text).toMatch(/^Не получилось/)
+  })
+
+  it('показывает «Работаю» с бегущими точками и удаляет его после ответа', async () => {
+    const tg = fakeTelegram()
+    let tick
+    const timers = { setIntervalImpl: fn => { tick = fn; return 7 }, clearIntervalImpl: vi.fn() }
+    const eng = { run: async () => { tick(); tick(); return { reply: 'Корзина собрана, можно оплачивать', sessionId: 's1', isError: false } } }
+    const h = createHandler({ ownerId: 42, telegram: tg, engine: eng, sessions: createSessions({ file: 'x', fs: memFs() }), loginRunner: {}, ...timers })
+    await h.handleMessage(msg('нужны молоко и хлеб'))
+    expect(tg.sent[0].text).toBe('Работаю.')
+    expect(tg.edits.map(e => e.text)).toEqual(['Работаю..', 'Работаю...'])
+    expect(tg.deleted).toEqual([tg.sent[0].message_id])
+    expect(timers.clearIntervalImpl).toHaveBeenCalledWith(7)
+    expect(tg.visible()).toEqual([{ type: 'text', chatId: 42, text: 'Корзина собрана, можно оплачивать' }])
   })
 })
