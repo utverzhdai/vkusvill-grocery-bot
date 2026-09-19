@@ -1,6 +1,7 @@
 // Открывает ссылку share_basket в сохранённой сессии владелицы и печатает JSON.
 // Использование: node tools/cart.mjs https://vkusvill.ru/?share_basket=123
 //                node tools/cart.mjs --read      — только прочитать текущую корзину, ничего не добавляя
+//                node tools/cart.mjs --clear     — очистить корзину аккаунта (кнопка «Очистить корзину» + подтверждение)
 import { chromium } from 'playwright'
 import { readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -10,10 +11,11 @@ import { parseCart } from './cart-parse.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const link = process.argv[2]
 const readOnly = link === '--read'
+const clearMode = link === '--clear'
 const browserDir = process.env.GROCERY_BROWSER_DIR ?? join(here, '..', '..', 'browser')
 const out = obj => { console.log(JSON.stringify(obj)); }
 
-if (!readOnly && (!link || !/^https:\/\/vkusvill\.ru\/\?share_basket=\d+$/.test(link))) {
+if (!readOnly && !clearMode && (!link || !/^https:\/\/vkusvill\.ru\/\?share_basket=\d+$/.test(link))) {
   out({ status: 'error', message: 'ожидается ссылка вида https://vkusvill.ru/?share_basket=<число>', screenshot: null })
   process.exit(0)
 }
@@ -31,13 +33,25 @@ try {
     ...(process.env.PROXY ? { proxy: { server: process.env.PROXY } } : {}),
   })
   const page = await ctx.newPage()
-  if (readOnly) {
+  if (readOnly || clearMode) {
     await page.goto('https://vkusvill.ru/cart/', { waitUntil: 'domcontentloaded', timeout: 60_000 })
     await page.waitForSelector(selectors.cartItem, { timeout: 15_000 }).catch(() => {})
     if (!(await page.$(selectors.loggedIn))) { out({ status: 'auth_required' }); }
     else {
+      let cleared = false
+      if (clearMode) {
+        const clearBtn = await page.$(selectors.cartClear)
+        if (clearBtn) {
+          await clearBtn.click()
+          // Сайт спрашивает подтверждение в модалке; если её нет — корзина очищена сразу.
+          const confirm = await page.waitForSelector(selectors.confirmAccept, { state: 'visible', timeout: 5_000 }).catch(() => null)
+          if (confirm) await confirm.click()
+          await page.waitForFunction(sel => document.querySelectorAll(sel).length === 0, selectors.cartItem, { timeout: 15_000 }).catch(() => {})
+          cleared = true
+        }
+      }
       const cart = await parseCart(page, selectors)
-      out({ status: 'ok', items: cart.items, total: cart.total, unavailable: cart.items.filter(i => !i.available).map(i => i.name) })
+      out({ status: 'ok', cleared, items: cart.items, total: cart.total, unavailable: cart.items.filter(i => !i.available).map(i => i.name) })
     }
   } else {
   await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 60_000 })

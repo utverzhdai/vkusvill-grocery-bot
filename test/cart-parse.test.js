@@ -18,8 +18,8 @@ describe('parseCart', () => {
     const r = await parseCart(page, synthetic)
     expect(r.loggedIn).toBe(true)
     expect(r.items).toEqual([
-      { name: 'Сыр «Пармезан» 100 г', qty: '1', price: '286 ₽', available: true },
-      { name: 'Бекон 200 г', qty: '2', price: '350 ₽', available: false },
+      { xmlId: '107311', name: 'Сыр «Пармезан» 100 г', qty: '1', price: '286 ₽', available: true },
+      { xmlId: '555', name: 'Бекон 200 г', qty: '2', price: '350 ₽', available: false },
     ])
     expect(r.total).toBe('986 ₽')
   })

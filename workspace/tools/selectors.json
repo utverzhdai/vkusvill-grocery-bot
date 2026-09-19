@@ -11,5 +11,7 @@
   "phoneInput": "input[type=tel]",
   "phoneSubmit": "",
   "codeInput": "input[autocomplete=\"one-time-code\"], input[name*=code i], input[inputmode=numeric]:not([type=tel])",
-  "codeSubmit": ""
+  "codeSubmit": "",
+  "cartClear": ".js-delivery__basket--clear",
+  "confirmAccept": "#js-lk-modal-confirm-callback"
 }

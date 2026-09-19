@@ -7,7 +7,7 @@ export async function parseCart(page, s) {
     const unavailable = s.itemUnavailable
       ? n.matches(s.itemUnavailable) || n.querySelector(s.itemUnavailable) !== null
       : false
-    return { name: text(s.itemName), qty: text(s.itemQty), price: text(s.itemPrice), available: !unavailable }
+    return { xmlId: n.getAttribute('data-xmlid') || null, name: text(s.itemName), qty: text(s.itemQty), price: text(s.itemPrice), available: !unavailable }
   }), s)
   const totalEl = s.cartTotal ? await page.$(s.cartTotal) : null
   const total = totalEl ? (await totalEl.textContent()).trim() : null
