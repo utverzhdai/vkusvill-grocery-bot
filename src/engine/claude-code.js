@@ -8,10 +8,38 @@ const ALLOWED_TOOLS = [
   'WebSearch',
   'WebFetch',
   'Read',
-  'Write',
-  'Edit',
+  // Писать модель может только в память — остальной воркспейс для неё только на чтение.
+  'Write(memory/**)',
+  'Edit(memory/**)',
   'Bash(node tools/cart.mjs *)',
 ].join(',')
+
+// При shell: true Node не экранирует аргументы сам: строка вроде
+// Bash(node tools/cart.mjs *) в cmd.exe рассыпается на куски.
+const NEEDS_QUOTES = /[ ()*,"]/
+
+export function quoteForShell(args, platform = process.platform) {
+  if (platform !== 'win32') return args
+  return args.map(a => (NEEDS_QUOTES.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a))
+}
+
+// Дочернему процессу отдаём только то, что нужно самому claude: токен бота
+// и прочие секреты бота в его окружении делать нечего.
+function childEnv({ oauthToken, browserDir }) {
+  return {
+    PATH: process.env.PATH ?? '',
+    HOME: process.env.HOME ?? '',
+    USERPROFILE: process.env.USERPROFILE ?? '',
+    APPDATA: process.env.APPDATA ?? '',
+    LOCALAPPDATA: process.env.LOCALAPPDATA ?? '',
+    SYSTEMROOT: process.env.SYSTEMROOT ?? '',
+    TEMP: process.env.TEMP ?? '',
+    TMP: process.env.TMP ?? '',
+    LANG: process.env.LANG ?? 'ru_RU.UTF-8',
+    CLAUDE_CODE_OAUTH_TOKEN: oauthToken ?? '',
+    GROCERY_BROWSER_DIR: browserDir ?? '',
+  }
+}
 
 export function buildArgs({ sessionId, model = 'sonnet' }) {
   const args = [
@@ -37,11 +65,14 @@ export function createEngine({ workspaceDir, browserDir, oauthToken, spawnImpl =
         const finish = r => { if (!done) { done = true; clearTimeout(timer); resolve(r) } }
 
         try {
-          const child = spawnImpl('claude', args, {
+          // На Windows claude — .cmd-шим, без shell spawn его не запустит. На сервере Linux не нужно.
+          const useShell = process.platform === 'win32'
+          const child = spawnImpl('claude', useShell ? quoteForShell(args) : args, {
             cwd: workspaceDir,
-            env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: oauthToken ?? '', GROCERY_BROWSER_DIR: browserDir ?? '' },
-            // На Windows claude — .cmd-шим, без shell spawn его не запустит. На сервере Linux не нужно.
-            shell: process.platform === 'win32',
+            env: childEnv({ oauthToken, browserDir }),
+            shell: useShell,
+            // Своя группа процессов, чтобы по таймауту убить claude вместе с его детьми.
+            detached: process.platform !== 'win32',
           })
           if (child.stdin) {
             child.stdin.on('error', () => {})
@@ -50,7 +81,10 @@ export function createEngine({ workspaceDir, browserDir, oauthToken, spawnImpl =
           }
           let out = '', err = ''
           timer = setTimeout(() => {
-            child.kill()
+            if (process.platform === 'win32') child.kill()
+            else {
+              try { process.kill(-child.pid, 'SIGKILL') } catch { child.kill() }
+            }
             finish({ reply: 'Таймаут ответа модели (3 минуты). Повтори, пожалуйста.', sessionId, isError: true })
           }, timeoutMs)
           child.stdout.on('data', d => { out += d })

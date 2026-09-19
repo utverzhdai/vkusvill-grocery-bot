@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { buildArgs, createEngine } from '../src/engine/claude-code.js'
+import { buildArgs, createEngine, quoteForShell } from '../src/engine/claude-code.js'
 
 function fakeSpawn(stdoutText, code = 0, throwOnSpawn = false) {
   const calls = []
@@ -34,10 +34,27 @@ describe('buildArgs', () => {
     const tools = a[a.indexOf('--allowedTools') + 1]
     expect(tools).toContain('mcp__vkusvill__*')
     expect(tools).toContain('Bash(node tools/cart.mjs *)')
+    expect(tools).toContain('Write(memory/**)')
   })
   it('добавляет --resume при известной сессии', () => {
     const a = buildArgs({ sessionId: 'sid-1' })
     expect(a[a.indexOf('--resume') + 1]).toBe('sid-1')
+  })
+})
+
+describe('quoteForShell', () => {
+  it('на win32 закавычивает аргументы со скобками и пробелами', () => {
+    const a = quoteForShell(['-p', '--allowedTools', 'Bash(node tools/cart.mjs *)'], 'win32')
+    expect(a[0]).toBe('-p')
+    expect(a[1]).toBe('--allowedTools')
+    expect(a[2]).toBe('"Bash(node tools/cart.mjs *)"')
+  })
+  it('на linux возвращает аргументы без изменений', () => {
+    const args = ['-p', '--allowedTools', 'Bash(node tools/cart.mjs *)']
+    expect(quoteForShell(args, 'linux')).toEqual(args)
+  })
+  it('экранирует внутренние кавычки', () => {
+    expect(quoteForShell(['a "b" c'], 'win32')).toEqual(['"a \\"b\\" c"'])
   })
 })
 
@@ -53,6 +70,17 @@ describe('createEngine.run', () => {
     expect(calls[0].opts.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('tok')
     expect(calls[0].opts.env.GROCERY_BROWSER_DIR).toBe('/br')
     expect(calls[0].stdinWritten).toBe('шарлотка')
+  })
+  it('не пробрасывает в дочерний процесс посторонние переменные окружения', async () => {
+    process.env.TELEGRAM_TOKEN = 'secret'
+    try {
+      const { spawnImpl, calls } = fakeSpawn(okJson)
+      const e = createEngine({ workspaceDir: '/ws', browserDir: '/br', oauthToken: 'tok', spawnImpl })
+      await e.run('x', null)
+      expect(calls[0].opts.env.TELEGRAM_TOKEN).toBeUndefined()
+    } finally {
+      delete process.env.TELEGRAM_TOKEN
+    }
   })
   it('isError при ненулевом коде или битом JSON', async () => {
     const { spawnImpl } = fakeSpawn('не json', 1)
