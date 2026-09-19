@@ -2,6 +2,7 @@
 // Использование: node tools/cart.mjs https://vkusvill.ru/?share_basket=123
 //                node tools/cart.mjs --read      — только прочитать текущую корзину, ничего не добавляя
 //                node tools/cart.mjs --clear     — очистить корзину аккаунта (кнопка «Очистить корзину» + подтверждение)
+//                node tools/cart.mjs --remove 606,611  — удалить из корзины позиции с указанными xml_id
 import { chromium } from 'playwright'
 import { readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -12,10 +13,13 @@ const here = dirname(fileURLToPath(import.meta.url))
 const link = process.argv[2]
 const readOnly = link === '--read'
 const clearMode = link === '--clear'
+const removeMode = link === '--remove'
+const removeIds = removeMode ? String(process.argv[3] ?? '').split(',').map(x => x.trim()).filter(Boolean) : []
 const browserDir = process.env.GROCERY_BROWSER_DIR ?? join(here, '..', '..', 'browser')
 const out = obj => { console.log(JSON.stringify(obj)); }
 
-if (!readOnly && !clearMode && (!link || !/^https:\/\/vkusvill\.ru\/\?share_basket=\d+$/.test(link))) {
+if (removeMode && !removeIds.length) { out({ status: 'error', message: 'для --remove нужны xml_id через запятую', screenshot: null }); process.exit(0) }
+if (!readOnly && !clearMode && !removeMode && (!link || !/^https:\/\/vkusvill\.ru\/\?share_basket=\d+$/.test(link))) {
   out({ status: 'error', message: 'ожидается ссылка вида https://vkusvill.ru/?share_basket=<число>', screenshot: null })
   process.exit(0)
 }
@@ -33,25 +37,37 @@ try {
     ...(process.env.PROXY ? { proxy: { server: process.env.PROXY } } : {}),
   })
   const page = await ctx.newPage()
-  if (readOnly || clearMode) {
+  if (readOnly || clearMode || removeMode) {
     await page.goto('https://vkusvill.ru/cart/', { waitUntil: 'domcontentloaded', timeout: 60_000 })
     await page.waitForSelector(selectors.cartItem, { timeout: 15_000 }).catch(() => {})
     if (!(await page.$(selectors.loggedIn))) { out({ status: 'auth_required' }); }
     else {
       let cleared = false
+      const removed = []
       if (clearMode) {
-        const clearBtn = await page.$(selectors.cartClear)
-        if (clearBtn) {
-          await clearBtn.click()
+        // Кнопка «Очистить корзину» есть на странице дважды, первая скрыта: кликаем только видимую.
+        const clearBtn = page.locator(`${selectors.cartClear}:visible`).first()
+        if (await clearBtn.count()) {
+          await clearBtn.click({ timeout: 10_000 })
           // Сайт спрашивает подтверждение в модалке; если её нет — корзина очищена сразу.
           const confirm = await page.waitForSelector(selectors.confirmAccept, { state: 'visible', timeout: 5_000 }).catch(() => null)
           if (confirm) await confirm.click()
           await page.waitForFunction(sel => document.querySelectorAll(sel).length === 0, selectors.cartItem, { timeout: 15_000 }).catch(() => {})
-          cleared = true
+          cleared = (await page.$$(selectors.cartItem)).length === 0
+          if (!cleared) throw new Error('корзина не очистилась после нажатия «Очистить корзину»')
+        } else cleared = (await page.$$(selectors.cartItem)).length === 0
+      }
+      if (removeMode) {
+        for (const id of removeIds) {
+          const del = page.locator(`${selectors.cartItem}[data-xmlid="${id}"] ${selectors.itemDelete}:visible`).first()
+          if (!(await del.count())) continue
+          await del.click({ timeout: 10_000 })
+          await page.waitForFunction(([sel, id]) => !document.querySelector(`${sel}[data-xmlid="${id}"]`), [selectors.cartItem, id], { timeout: 10_000 }).catch(() => {})
+          removed.push(id)
         }
       }
       const cart = await parseCart(page, selectors)
-      out({ status: 'ok', cleared, items: cart.items, total: cart.total, unavailable: cart.items.filter(i => !i.available).map(i => i.name) })
+      out({ status: 'ok', cleared, removed, items: cart.items, total: cart.total, unavailable: cart.items.filter(i => !i.available).map(i => i.name) })
     }
   } else {
   await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 60_000 })
