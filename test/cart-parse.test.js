@@ -40,4 +40,36 @@ describe('parseCart', () => {
     expect(r.items.every(i => i.available)).toBe(true)
     expect(r.total).toBe('881')
   })
+
+  it('количество и цена первой позиции реального снимка заполнены', async () => {
+    const selectors = JSON.parse(readFileSync('workspace/tools/selectors.json', 'utf8'))
+    await page.setContent(readFileSync('test/fixtures/cart-real.html', 'utf8'))
+    const r = await parseCart(page, selectors)
+    expect(r.items[0].qty.length).toBeGreaterThan(0)
+    expect(r.items[0].price.length).toBeGreaterThan(0)
+    expect(r.items[0].price).toMatch(/^\d+$/)
+  })
+
+  it('открытый блок «нет в наличии» помечает позицию недоступной', async () => {
+    const selectors = JSON.parse(readFileSync('workspace/tools/selectors.json', 'utf8'))
+    const html = readFileSync('test/fixtures/cart-real.html', 'utf8')
+      .replace(/js-delivery__basket--row__wo_maxq\s+hidden/, 'js-delivery__basket--row__wo_maxq')
+    await page.setContent(html)
+    const r = await parseCart(page, selectors)
+    expect(r.items.filter(i => !i.available).length).toBe(1)
+  })
+
+  it('окно share_basket под входом: есть признак входа и кнопка «В корзину»', async () => {
+    const selectors = JSON.parse(readFileSync('workspace/tools/selectors.json', 'utf8'))
+    await page.setContent(readFileSync('test/fixtures/share-modal-real.html', 'utf8'))
+    expect(await page.$(selectors.loggedIn)).not.toBeNull()
+    expect(await page.$(selectors.shareAccept)).not.toBeNull()
+  })
+
+  it('окно share_basket без входа: нет ни признака входа, ни кнопки', async () => {
+    const selectors = JSON.parse(readFileSync('workspace/tools/selectors.json', 'utf8'))
+    await page.setContent(readFileSync('test/fixtures/share-modal-loggedout-real.html', 'utf8'))
+    expect(await page.$(selectors.loggedIn)).toBeNull()
+    expect(await page.$(selectors.shareAccept)).toBeNull()
+  })
 })
