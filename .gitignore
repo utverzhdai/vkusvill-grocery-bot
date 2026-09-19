@@ -5,3 +5,4 @@ state.json
 spike/captures/
 workspace/memory/history/*.md
 !workspace/memory/history/.gitkeep
+spike/auto/*.png
